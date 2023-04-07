@@ -1,0 +1,447 @@
+#Подключение к ВМ через api
+user@otus-host-01:~/otus-hw/03-lab$ vagrant ssh
+
+
+#Переход в root
+  [vagrant@lab2lvm ~]$ sudo -i
+
+
+#отображение ФС и объёма данных на них
+  [root@lab2lvm ~]# df -h
+    Filesystem                       Size  Used Avail Use% Mounted on
+    /dev/mapper/VolGroup00-LogVol00   38G  856M   37G   3% /
+    devtmpfs                         109M     0  109M   0% /dev
+    tmpfs                            118M     0  118M   0% /dev/shm
+    tmpfs                            118M  4.5M  114M   4% /run
+    tmpfs                            118M     0  118M   0% /sys/fs/cgroup
+    /dev/sda2                       1014M   63M  952M   7% /boot
+    tmpfs                             24M     0   24M   0% /run/user/1000
+
+
+#Подготовка временного тома для / раздела: 
+  [root@lab2lvm ~]# pvcreate /dev/sdb
+      Physical volume "/dev/sdb" successfully created.
+  [root@lab2lvm ~]# vgcreate vg_root /dev/sdb
+      Volume group "vg_root" successfully created
+  [root@lab2lvm ~]# lvcreate -n lv_root -l +100%FREE /dev/vg_root
+      Logical volume "lv_root" created.
+  [root@lab2lvm ~]# mkfs.xfs /dev/vg_root/lv_root
+    meta-data=/dev/vg_root/lv_root   isize=512    agcount=4, agsize=1310464 blks
+            =                       sectsz=512   attr=2, projid32bit=1
+            =                       crc=1        finobt=0, sparse=0
+    data     =                       bsize=4096   blocks=5241856, imaxpct=25
+             =                       sunit=0      swidth=0 blks
+    naming   =version 2              bsize=4096   ascii-ci=0 ftype=1
+    log      =internal log           bsize=4096   blocks=2560, version=2
+             =                       sectsz=512   sunit=0 blks, lazy-count=1
+    realtime =none                   extsz=4096   blocks=0, rtextents=0
+  [root@lab2lvm ~]# mount /dev/vg_root/lv_root /mnt
+
+#Перенос данных на созданный временный раздел
+  [root@lab2lvm ~]# xfsdump -J - /dev/VolGroup00/LogVol00 | xfsrestore -J - /mnt
+    xfsdump: using file dump (drive_simple) strategy
+    xfsdump: version 3.1.7 (dump format 3.0)
+    xfsdump: level 0 dump of lab2lvm:/
+    xfsdump: dump date: Mon Apr  3 12:45:00 2023
+    xfsdump: session id: 6f8dabb5-7ec8-4ece-9c60-b258cd841179
+    xfsdump: session label: ""
+    xfsdump: ino map phase 1: constructing initial dump list
+    xfsrestore: using file dump (drive_simple) strategy
+    xfsrestore: version 3.1.7 (dump format 3.0)
+    xfsrestore: searching media for dump
+    xfsdump: ino map phase 2: skipping (no pruning necessary)
+    xfsdump: ino map phase 3: skipping (only one dump stream)
+    xfsdump: ino map construction complete
+    xfsdump: estimated dump size: 858142912 bytes
+    xfsdump: creating dump session media file 0 (media 0, file 0)
+    xfsdump: dumping ino map
+    xfsdump: dumping directories
+    xfsrestore: examining media file 0
+    xfsrestore: dump description:
+    xfsrestore: hostname: lab2lvm
+    xfsrestore: mount point: /
+    xfsrestore: volume: /dev/mapper/VolGroup00-LogVol00
+    xfsrestore: session time: Mon Apr  3 12:45:00 2023
+    xfsrestore: level: 0
+    xfsrestore: session label: ""
+    xfsrestore: media label: ""
+    xfsrestore: file system id: b60e9498-0baa-4d9f-90aa-069048217fee
+    xfsrestore: session id: 6f8dabb5-7ec8-4ece-9c60-b258cd841179
+    xfsrestore: media id: 006fee7d-bc9d-48df-a281-d2a58d544996
+    xfsrestore: searching media for directory dump
+    xfsrestore: reading directories
+    xfsdump: dumping non-directory files
+    xfsrestore: 2699 directories and 23713 entries processed
+    xfsrestore: directory post-processing
+    xfsrestore: restoring non-directory files
+    xfsdump: ending media file
+    xfsdump: media file size 834735424 bytes
+    xfsdump: dump size (non-dir files) : 821519064 bytes
+    xfsdump: dump complete: 44 seconds elapsed
+    xfsdump: Dump Status: SUCCESS
+    xfsrestore: restore complete: 44 seconds elapsed
+    xfsrestore: Restore Status: SUCCESS
+
+
+#Переконфигурирование grub
+  [root@lab2lvm ~]# for i in /proc/ /sys/ /dev/ /run/ /boot/; do mount --bind $i /mnt/$i; done
+  [root@lab2lvm ~]# chroot /mnt/
+  [root@lab2lvm /]# ls
+    bin  boot  dev  etc  home  lib  lib64  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+  [root@lab2lvm /]# grub2-mkconfig -o /boot/grub2/grub.cfg
+    Generating grub configuration file ...
+    Found linux image: /boot/vmlinuz-3.10.0-862.2.3.el7.x86_64
+    Found initrd image: /boot/initramfs-3.10.0-862.2.3.el7.x86_64.img
+    done
+  [root@lab2lvm /]# cd /boot ; for i in `ls initramfs-*img`; do dracut -v $i `echo $i|sed "s/initramfs-//g;
+> s/.img//g"` --force; done
+    Executing: /sbin/dracut -v initramfs-3.10.0-862.2.3.el7.x86_64.img 3.10.0-862.2.3.el7.x86_64 --force
+    dracut module 'busybox' will not be installed, because command 'busybox' could not be found!
+    dracut module 'crypt' will not be installed, because command 'cryptsetup' could not be found!
+    dracut module 'dmraid' will not be installed, because command 'dmraid' could not be found!
+    dracut module 'dmsquash-live-ntfs' will not be installed, because command 'ntfs-3g' could not be found!
+    dracut module 'multipath' will not be installed, because command 'multipath' could not be found!
+    dracut module 'busybox' will not be installed, because command 'busybox' could not be found!
+    dracut module 'crypt' will not be installed, because command 'cryptsetup' could not be found!
+    dracut module 'dmraid' will not be installed, because command 'dmraid' could not be found!
+    dracut module 'dmsquash-live-ntfs' will not be installed, because command 'ntfs-3g' could not be found!
+    dracut module 'multipath' will not be installed, because command 'multipath' could not be found!
+    *** Including module: bash ***
+    *** Including module: nss-softokn ***
+    *** Including module: i18n ***
+    *** Including module: drm ***
+    *** Including module: plymouth ***
+    *** Including module: dm ***
+    Skipping udev rule: 64-device-mapper.rules
+    Skipping udev rule: 60-persistent-storage-dm.rules
+    Skipping udev rule: 55-dm.rules
+    *** Including module: kernel-modules ***
+    Omitting driver floppy
+    *** Including module: lvm ***
+    Skipping udev rule: 64-device-mapper.rules
+    Skipping udev rule: 56-lvm.rules
+    Skipping udev rule: 60-persistent-storage-lvm.rules
+    *** Including module: qemu ***
+    *** Including module: resume ***
+    *** Including module: rootfs-block ***
+    *** Including module: terminfo ***
+    *** Including module: udev-rules ***
+    Skipping udev rule: 40-redhat-cpu-hotplug.rules
+    Skipping udev rule: 91-permissions.rules
+    *** Including module: biosdevname ***
+    *** Including module: systemd ***
+    *** Including module: usrmount ***
+    *** Including module: base ***
+    *** Including module: fs-lib ***
+    *** Including module: shutdown ***
+    *** Including modules done ***
+    *** Installing kernel module dependencies and firmware ***
+    *** Installing kernel module dependencies and firmware done ***
+    *** Resolving executable dependencies ***
+    *** Resolving executable dependencies done***
+    *** Hardlinking files ***
+    *** Hardlinking files done ***
+    *** Stripping files ***
+    *** Stripping files done ***
+    *** Generating early-microcode cpio image contents ***
+    *** No early-microcode cpio image needed ***
+    *** Store current command line parameters ***
+    *** Creating image file ***
+    *** Creating image file done ***
+    *** Creating initramfs image file '/boot/initramfs-3.10.0-862.2.3.el7.x86_64.img' done ***
+  [root@lab2lvm boot]# ls
+    config-3.10.0-862.2.3.el7.x86_64  efi  grub  grub2  initramfs-3.10.0-862.2.3.el7.x86_64.img  symvers-3.10.0-862.2.3.el7.x86_64.gz  System.map-3.10.0-862.2.3.el7.x86_64  vmlinuz-3.10.0-862.2.3.el7.x86_64
+
+#Правка загрузчика для загрузки в нужный / раздел
+  [root@lab2lvm boot]# vi grub2/grub.cfg
+
+#выход из chroot
+  [root@lab2lvm boot]# exit
+    exit
+
+#Просмотр текущей конфигурации блочных устройств
+  [root@lab2lvm ~]# lsblk
+    NAME                    MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+    sda                       8:0    0   40G  0 disk
+    ├─sda1                    8:1    0    1M  0 part
+    ├─sda2                    8:2    0    1G  0 part /mnt/boot
+    └─sda3                    8:3    0   39G  0 part
+      ├─VolGroup00-LogVol00 253:0    0 37.5G  0 lvm  /
+      └─VolGroup00-LogVol01 253:1    0  1.5G  0 lvm  [SWAP]
+    sdb                       8:16   0   20G  0 disk
+    └─vg_root-lv_root       253:2    0   20G  0 lvm  /mnt
+    sdc                       8:32   0    2G  0 disk
+    sdd                       8:48   0    1G  0 disk
+    sde                       8:64   0    1G  0 disk
+  [root@lab2lvm ~]# df -h
+    Filesystem                       Size  Used Avail Use% Mounted on
+    /dev/mapper/VolGroup00-LogVol00   38G  856M   37G   3% /
+    devtmpfs                         109M     0  109M   0% /dev
+    tmpfs                            118M     0  118M   0% /dev/shm
+    tmpfs                            118M  4.6M  114M   4% /run
+    tmpfs                            118M     0  118M   0% /sys/fs/cgroup
+    /dev/sda2                       1014M   61M  954M   6% /boot
+    tmpfs                             24M     0   24M   0% /run/user/1000
+    /dev/mapper/vg_root-lv_root       20G  856M   20G   5% /mnt
+# Перезагрузка
+  [root@lab2lvm ~]# reboot
+
+# Подключение в ВМ через API
+
+  user@otus-host-01:~/otus-hw/03-lab$ vagrant ssh
+    Last login: Mon Apr  3 12:43:53 2023 from 10.0.2.2
+# Проверка конфигурации блочных устройств
+    [vagrant@lab2lvm ~]$ lsblk
+        NAME                    MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+        sda                       8:0    0   40G  0 disk
+        ├─sda1                    8:1    0    1M  0 part
+        ├─sda2                    8:2    0    1G  0 part /boot
+        └─sda3                    8:3    0   39G  0 part
+          ├─VolGroup00-LogVol01 253:1    0  1.5G  0 lvm  [SWAP]
+          └─VolGroup00-LogVol00 253:2    0 37.5G  0 lvm
+        sdb                       8:16   0   20G  0 disk
+        └─vg_root-lv_root       253:0    0   20G  0 lvm  /
+        sdc                       8:32   0    2G  0 disk
+        sdd                       8:48   0    1G  0 disk
+        sde                       8:64   0    1G  0 disk
+
+#Переход в режим root и изменение размера / до 8Гб
+  [vagrant@lab2lvm ~]$ sudo -i
+  [root@lab2lvm ~]# lvremove /dev/VolGroup00/LogVol00
+    Do you really want to remove active logical volume VolGroup00/LogVol00? [y/n]: y
+    Logical volume "LogVol00" successfully removed
+  [root@lab2lvm ~]# lvcreate -n VolGroup00/LogVol00 -L 8G /dev/VolGroup00
+    WARNING: xfs signature detected on /dev/VolGroup00/LogVol00 at offset 0. Wipe it? [y/n]: y
+      Wiping xfs signature on /dev/VolGroup00/LogVol00.
+      Logical volume "LogVol00" created.
+  [root@lab2lvm ~]# mkfs.xfs /dev/VolGroup00/LogVol00
+    meta-data=/dev/VolGroup00/LogVol00 isize=512    agcount=4, agsize=524288 blks
+            =                       sectsz=512   attr=2, projid32bit=1
+            =                       crc=1        finobt=0, sparse=0
+    data     =                       bsize=4096   blocks=2097152, imaxpct=25
+            =                       sunit=0      swidth=0 blks
+    naming   =version 2              bsize=4096   ascii-ci=0 ftype=1
+    log      =internal log           bsize=4096   blocks=2560, version=2
+            =                       sectsz=512   sunit=0 blks, lazy-count=1
+    realtime =none                   extsz=4096   blocks=0, rtextents=0
+  [root@lab2lvm ~]# mount /dev/VolGroup00/LogVol00 /mnt
+#Восстановление данных на целевой раздел
+  [root@lab2lvm ~]# xfsdump -J - /dev/vg_root/lv_root | xfsrestore -J - /mnt
+      xfsdump: using file dump (drive_simple) strategy
+      xfsdump: version 3.1.7 (dump format 3.0)
+      xfsdump: level 0 dump of lab2lvm:/
+      xfsdump: dump date: Mon Apr  3 12:56:30 2023
+      xfsdump: session id: e4b2b3ae-eda4-43df-a5f6-dfea17956614
+      xfsdump: session label: ""
+      xfsrestore: using file dump (drive_simple) strategy
+      xfsrestore: version 3.1.7 (dump format 3.0)
+      xfsrestore: searching media for dump
+      xfsdump: ino map phase 1: constructing initial dump list
+      xfsdump: ino map phase 2: skipping (no pruning necessary)
+      xfsdump: ino map phase 3: skipping (only one dump stream)
+      xfsdump: ino map construction complete
+      xfsdump: estimated dump size: 856612608 bytes
+      xfsdump: creating dump session media file 0 (media 0, file 0)
+      xfsdump: dumping ino map
+      xfsdump: dumping directories
+      xfsrestore: examining media file 0
+      xfsrestore: dump description:
+      xfsrestore: hostname: lab2lvm
+      xfsrestore: mount point: /
+      xfsrestore: volume: /dev/mapper/vg_root-lv_root
+      xfsrestore: session time: Mon Apr  3 12:56:30 2023
+      xfsrestore: level: 0
+      xfsrestore: session label: ""
+      xfsrestore: media label: ""
+      xfsrestore: file system id: ab8ed48f-7927-4998-bcdd-b4ba1051eedb
+      xfsrestore: session id: e4b2b3ae-eda4-43df-a5f6-dfea17956614
+      xfsrestore: media id: 0c91173b-5475-4824-aaa1-abd0d82dfeb0
+      xfsrestore: searching media for directory dump
+      xfsrestore: reading directories
+      xfsdump: dumping non-directory files
+      xfsrestore: 2703 directories and 23718 entries processed
+      xfsrestore: directory post-processing
+      xfsrestore: restoring non-directory files
+      xfsdump: ending media file
+      xfsdump: media file size 833309624 bytes
+      xfsdump: dump size (non-dir files) : 820089576 bytes
+      xfsdump: dump complete: 50 seconds elapsed
+      xfsdump: Dump Status: SUCCESS
+      xfsrestore: restore complete: 50 seconds elapsed
+      xfsrestore: Restore Status: SUCCESS
+
+#Перенастраиваем загрузчик
+    [root@lab2lvm ~]# for i in /proc/ /sys/ /dev/ /run/ /boot/; do mount --bind $i /mnt/$i; done
+    [root@lab2lvm ~]# chroot /mnt/
+    [root@lab2lvm /]# grub2-mkconfig -o /boot/grub2/grub.cfg
+      Generating grub configuration file ...
+      Found linux image: /boot/vmlinuz-3.10.0-862.2.3.el7.x86_64
+      Found initrd image: /boot/initramfs-3.10.0-862.2.3.el7.x86_64.img
+      done
+    [root@lab2lvm /]# cd /boot ; for i in `ls initramfs-*img`; do dracut -v $i `echo $i|sed "s/initramfs-//g;
+    > s/.img//g"` --force; done
+      Executing: /sbin/dracut -v initramfs-3.10.0-862.2.3.el7.x86_64.img 3.10.0-862.2.3.el7.x86_64 --force
+      dracut module 'busybox' will not be installed, because command 'busybox' could not be found!
+      dracut module 'crypt' will not be installed, because command 'cryptsetup' could not be found!
+      dracut module 'dmraid' will not be installed, because command 'dmraid' could not be found!
+      dracut module 'dmsquash-live-ntfs' will not be installed, because command 'ntfs-3g' could not be found!
+      dracut module 'multipath' will not be installed, because command 'multipath' could not be found!
+      dracut module 'busybox' will not be installed, because command 'busybox' could not be found!
+      dracut module 'crypt' will not be installed, because command 'cryptsetup' could not be found!
+      dracut module 'dmraid' will not be installed, because command 'dmraid' could not be found!
+      dracut module 'dmsquash-live-ntfs' will not be installed, because command 'ntfs-3g' could not be found!
+      dracut module 'multipath' will not be installed, because command 'multipath' could not be found!
+      *** Including module: bash ***
+      *** Including module: nss-softokn ***
+      *** Including module: i18n ***
+      *** Including module: drm ***
+      *** Including module: plymouth ***
+      *** Including module: dm ***
+      Skipping udev rule: 64-device-mapper.rules
+      Skipping udev rule: 60-persistent-storage-dm.rules
+      Skipping udev rule: 55-dm.rules
+      *** Including module: kernel-modules ***
+      Omitting driver floppy
+      *** Including module: lvm ***
+      Skipping udev rule: 64-device-mapper.rules
+      Skipping udev rule: 56-lvm.rules
+      Skipping udev rule: 60-persistent-storage-lvm.rules
+      *** Including module: qemu ***
+      *** Including module: resume ***
+      *** Including module: rootfs-block ***
+      *** Including module: terminfo ***
+      *** Including module: udev-rules ***
+      Skipping udev rule: 40-redhat-cpu-hotplug.rules
+      Skipping udev rule: 91-permissions.rules
+      *** Including module: biosdevname ***
+      *** Including module: systemd ***
+      *** Including module: usrmount ***
+      *** Including module: base ***
+      *** Including module: fs-lib ***
+      *** Including module: shutdown ***
+      *** Including modules done ***
+      *** Installing kernel module dependencies and firmware ***
+      *** Installing kernel module dependencies and firmware done ***
+      *** Resolving executable dependencies ***
+      *** Resolving executable dependencies done***
+      *** Hardlinking files ***
+      *** Hardlinking files done ***
+      *** Stripping files ***
+      *** Stripping files done ***
+      *** Generating early-microcode cpio image contents ***
+      *** No early-microcode cpio image needed ***
+      *** Store current command line parameters ***
+      *** Creating image file ***
+      *** Creating image file done ***
+      *** Creating initramfs image file '/boot/initramfs-3.10.0-862.2.3.el7.x86_64.img' done ***
+
+#проверка выполненной реконфигурации
+  [root@lab2lvm boot]# lsblk
+    NAME                    MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+    sda                       8:0    0   40G  0 disk
+    ├─sda1                    8:1    0    1M  0 part
+    ├─sda2                    8:2    0    1G  0 part /boot
+    └─sda3                    8:3    0   39G  0 part
+      ├─VolGroup00-LogVol01 253:1    0  1.5G  0 lvm  [SWAP]
+      └─VolGroup00-LogVol00 253:2    0    8G  0 lvm  /
+    sdb                       8:16   0   20G  0 disk
+    └─vg_root-lv_root       253:0    0   20G  0 lvm
+    sdc                       8:32   0    2G  0 disk
+    sdd                       8:48   0    1G  0 disk
+    sde                       8:64   0    1G  0 disk
+
+#Перенос /var
+  [root@lab2lvm boot]# pvcreate /dev/sdc /dev/sdd
+    Physical volume "/dev/sdc" successfully created.
+    Physical volume "/dev/sdd" successfully created.
+  [root@lab2lvm boot]# vgcreate vg_var /dev/sdc /dev/sdd
+    Volume group "vg_var" successfully created
+  [root@lab2lvm boot]# lvcreate -L 950M -m1 -n lv_var vg_var
+    Rounding up size to full physical extent 952.00 MiB
+    Logical volume "lv_var" created.
+  [root@lab2lvm boot]# mkfs.ext4 /dev/vg_var/lv_var
+    mke2fs 1.42.9 (28-Dec-2013)
+    Filesystem label=
+    OS type: Linux
+    Block size=4096 (log=2)
+    Fragment size=4096 (log=2)
+    Stride=0 blocks, Stripe width=0 blocks
+    60928 inodes, 243712 blocks
+    12185 blocks (5.00%) reserved for the super user
+    First data block=0
+    Maximum filesystem blocks=249561088
+    8 block groups
+    32768 blocks per group, 32768 fragments per group
+    7616 inodes per group
+    Superblock backups stored on blocks:
+            32768, 98304, 163840, 229376
+
+    Allocating group tables: done
+    Writing inode tables: done
+    Creating journal (4096 blocks): done
+    Writing superblocks and filesystem accounting information: done
+  [root@lab2lvm boot]# mount /dev/vg_var/lv_var /mnt
+  [root@lab2lvm boot]# cp -aR /var/* /mnt/
+
+#резервное копирование данных из исходного раздела
+  [root@lab2lvm boot]# mkdir /tmp/oldvar && mv /var/* /tmp/oldvar
+#перемонтируем разделы
+[root@lab2lvm boot]# umount /mnt
+[root@lab2lvm boot]# mount /dev/vg_var/lv_var /var
+[root@lab2lvm boot]# echo "`blkid | grep var: | awk '{print $2}'` /var ext4 defaults 0 0" >> /etc/fstab
+[root@lab2lvm boot]# exit
+exit
+#перезагрузка
+[root@lab2lvm ~]# reboot
+
+#Подключение к ВМ через API
+user@otus-host-01:~/otus-hw/03-lab$ vagrant ssh
+Last login: Mon Apr  3 12:55:17 2023 from 10.0.2.2
+[vagrant@lab2lvm ~]$ sudo -i
+
+#Удаление временных томов использованых для переноса /
+  [root@lab2lvm ~]# lvremove /dev/vg_root/lv_root
+  Do you really want to remove active logical volume vg_root/lv_root? [y/n]: y
+    Logical volume "lv_root" successfully removed
+  [root@lab2lvm ~]# vgremove /dev/vg_root
+    Volume group "vg_root" successfully removed
+  [root@lab2lvm ~]# pvremove /dev/sdb
+    Labels on physical volume "/dev/sdb" successfully wiped.
+
+#Выделение тома под /home
+  [root@lab2lvm ~]# lvcreate -n LogVol_Home -L 2G /dev/VolGroup00
+    Logical volume "LogVol_Home" created.
+  [root@lab2lvm ~]# mkfs.xfs /dev/VolGroup00/LogVol_Home
+  meta-data=/dev/VolGroup00/LogVol_Home isize=512    agcount=4, agsize=131072 blks
+          =                       sectsz=512   attr=2, projid32bit=1
+          =                       crc=1        finobt=0, sparse=0
+  data     =                       bsize=4096   blocks=524288, imaxpct=25
+          =                       sunit=0      swidth=0 blks
+  naming   =version 2              bsize=4096   ascii-ci=0 ftype=1
+  log      =internal log           bsize=4096   blocks=2560, version=2
+          =                       sectsz=512   sunit=0 blks, lazy-count=1
+  realtime =none                   extsz=4096   blocks=0, rtextents=0
+  [root@lab2lvm ~]# mount /dev/VolGroup00/LogVol_Home /mnt/
+  [root@lab2lvm ~]# cp -aR /home/* /mnt/
+  [root@lab2lvm ~]# rm -rf /home/*
+  [root@lab2lvm ~]# umount /mnt
+  [root@lab2lvm ~]# mount /dev/VolGroup00/LogVol_Home /home/
+#правка fstab для сохранения изменений при перезагрузке
+  [root@lab2lvm ~]# echo "`blkid | grep Home | awk '{print $2}'` /home xfs defaults 0 0" >> /etc/fstab
+#генерируем файлы  
+  [root@lab2lvm ~]# touch /home/file{1..20}
+#делаем снапшот
+  [root@lab2lvm ~]# lvcreate -L 100MB -s -n home_snap /dev/VolGroup00/LogVol_Home
+    Rounding up size to full physical extent 128.00 MiB
+    Logical volume "home_snap" created.
+#удаляем файлы 
+  [root@lab2lvm ~]# rm -f /home/file{11..20}
+  [root@lab2lvm ~]# umount /home
+#Восстанавливаем снапшот
+[root@lab2lvm ~]# lvconvert --merge /dev/VolGroup00/home_snap
+    Merging of volume VolGroup00/home_snap started.
+    VolGroup00/LogVol_Home: Merged: 100.00%
+  [root@lab2lvm ~]# mount /home
+  [root@lab2lvm ~]# ls /home/
+  file1  file10  file11  file12  file13  file14  file15  file16  file17  file18  file19  file2  file20  file3  file4  file5  file6  file7  file8  file9  vagrant
+  [root@lab2lvm ~]#
